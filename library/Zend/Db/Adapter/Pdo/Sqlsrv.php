@@ -1,5 +1,4 @@
 <?php
-
 /**
  * Zend Framework
  *
@@ -58,7 +57,7 @@ class Zend_Db_Adapter_Pdo_Sqlsrv extends Zend_Db_Adapter_Pdo_Abstract
      *
      * @var array Associative array of datatypes to values 0, 1, or 2.
      */
-    protected $_numericDataTypes = array(
+    protected $_numericDataTypes = [
         Zend_Db::INT_TYPE    => Zend_Db::INT_TYPE,
         Zend_Db::BIGINT_TYPE => Zend_Db::BIGINT_TYPE,
         Zend_Db::FLOAT_TYPE  => Zend_Db::FLOAT_TYPE,
@@ -72,7 +71,7 @@ class Zend_Db_Adapter_Pdo_Sqlsrv extends Zend_Db_Adapter_Pdo_Abstract
         'NUMERIC'            => Zend_Db::FLOAT_TYPE,
         'REAL'               => Zend_Db::FLOAT_TYPE,
         'SMALLMONEY'         => Zend_Db::FLOAT_TYPE
-    );
+    ];
 
     /**
      * Creates a PDO DSN for the adapter from $this->_config settings.
@@ -88,12 +87,12 @@ class Zend_Db_Adapter_Pdo_Sqlsrv extends Zend_Db_Adapter_Pdo_Abstract
             $dsn = $this->_pdoType . ':' . $dsn['name'];
         } else {
 
-            if (isset($dsn['dbname'])) {
+            if(isset($dsn['dbname'])) {
                 $dsn['Database'] = $dsn['dbname'];
                 unset($dsn['dbname']);
             }
 
-            if (isset($dsn['host'])) {
+            if(isset($dsn['host'])) {
                 $dsn['Server'] = $dsn['host'];
                 unset($dsn['host']);
             }
@@ -145,7 +144,8 @@ class Zend_Db_Adapter_Pdo_Sqlsrv extends Zend_Db_Adapter_Pdo_Abstract
         $sql = null;
 
         // Default transaction level in sql server
-        if ($level === null) {
+        if ($level === null)
+        {
             $level = SQLSRV_TXN_READ_COMMITTED;
         }
 
@@ -260,14 +260,14 @@ class Zend_Db_Adapter_Pdo_Sqlsrv extends Zend_Db_Adapter_Pdo_Abstract
 
         $stmt = $this->query($sql);
         $primaryKeysResult = $stmt->fetchAll(Zend_Db::FETCH_NUM);
-        $primaryKeyColumn = array();
+        $primaryKeyColumn = [];
         $pkey_column_name = 3;
         $pkey_key_seq = 4;
         foreach ($primaryKeysResult as $pkeysRow) {
             $primaryKeyColumn[$pkeysRow[$pkey_column_name]] = $pkeysRow[$pkey_key_seq];
         }
 
-        $desc = array();
+        $desc = [];
         $p = 1;
         foreach ($result as $key => $row) {
             $identity = false;
@@ -286,7 +286,7 @@ class Zend_Db_Adapter_Pdo_Sqlsrv extends Zend_Db_Adapter_Pdo_Abstract
                 $primaryPosition = null;
             }
 
-            $desc[$this->foldCase($row[$column_name])] = array(
+            $desc[$this->foldCase($row[$column_name])] = [
                 'SCHEMA_NAME'      => null, // @todo
                 'TABLE_NAME'       => $this->foldCase($row[$table_name]),
                 'COLUMN_NAME'      => $this->foldCase($row[$column_name]),
@@ -301,7 +301,7 @@ class Zend_Db_Adapter_Pdo_Sqlsrv extends Zend_Db_Adapter_Pdo_Abstract
                 'PRIMARY'          => $isPrimary,
                 'PRIMARY_POSITION' => $primaryPosition,
                 'IDENTITY'         => $identity
-            );
+            ];
         }
         return $desc;
     }
@@ -315,15 +315,8 @@ class Zend_Db_Adapter_Pdo_Sqlsrv extends Zend_Db_Adapter_Pdo_Abstract
      * @return string
      * @throws Zend_Db_Adapter_Exceptions
      */
-    public function limit($sql, $count, $offset = 0)
-    {
-        // PATCHED
-        $haveDistinct = false;
-        if (stristr($sql, 'SELECT DISTINCT') !== false) {
-            $haveDistinct = true;
-            $sql = preg_replace('/^SELECT DISTINCT\s/i', 'SELECT ', $sql);
-        }
-
+     public function limit($sql, $count, $offset = 0)
+     {
         $count = (int)$count;
         if ($count <= 0) {
             require_once 'Zend/Db/Adapter/Exception.php';
@@ -337,9 +330,8 @@ class Zend_Db_Adapter_Pdo_Sqlsrv extends Zend_Db_Adapter_Pdo_Abstract
             throw new Zend_Db_Adapter_Exception("LIMIT argument offset=$offset is not valid");
         }
 
-        if ($offset == 0) {
-            // PATCHED
-            $sql = $this->alterarDistinctTop($haveDistinct, $sql, $count);
+        if ($offset === 0) {
+            $sql = preg_replace('/^SELECT\s/i', 'SELECT TOP ' . $count . ' ', $sql);
         } else {
             $orderby = stristr($sql, 'ORDER BY');
             if ($orderby !== false) {
@@ -348,26 +340,17 @@ class Zend_Db_Adapter_Pdo_Sqlsrv extends Zend_Db_Adapter_Pdo_Abstract
                 $order = trim(preg_replace('/\bASC\b|\bDESC\b/i', '', $order));
             }
 
-            // PATCHED
-            $sql = $this->alterarDistinctTop($haveDistinct, $sql, $count, $offset);
+            $sql = preg_replace('/^SELECT\s/i', 'SELECT TOP ' . ($count+$offset) . ' ', $sql);
 
             $sql = 'SELECT * FROM (SELECT TOP ' . $count . ' * FROM (' . $sql . ') AS inner_tbl';
             if ($orderby !== false) {
                 $innerOrder = preg_replace('/\".*\".\"(.*)\"/i', '"inner_tbl"."$1"', $order);
-
-                // PATCHED
-                $innerOrder = $this->arrumarOrdenacao($innerOrder, "inner_tbl");
-
                 $sql .= ' ORDER BY ' . $innerOrder . ' ';
                 $sql .= (stripos($sort, 'asc') !== false) ? 'DESC' : 'ASC';
             }
             $sql .= ') AS outer_tbl';
             if ($orderby !== false) {
                 $outerOrder = preg_replace('/\".*\".\"(.*)\"/i', '"outer_tbl"."$1"', $order);
-
-                // PATCHED
-                $outerOrder = $this->arrumarOrdenacao($outerOrder, "outer_tbl");
-
                 $sql .= ' ORDER BY ' . $outerOrder . ' ' . $sort;
             }
         }
@@ -392,56 +375,5 @@ class Zend_Db_Adapter_Pdo_Sqlsrv extends Zend_Db_Adapter_Pdo_Abstract
         } catch (PDOException $e) {
             return null;
         }
-    }
-
-    /**
-     * Função para correção da ordenação no Mssql quando utilizado alias 
-     * de tabela para ordenar os campos. Esta função irá substituir o alias 
-     * original pelo alias da tabela externa
-     * 
-     * @param string $order
-     * @param string $sub
-     * 
-     * @return array
-     */
-    public function arrumarOrdenacao($order, $sub)
-    {
-        $divEsp = explode(" ", $order);
-
-        for ($i = 0; $i < count($divEsp); $i++) {
-            if (strpos($divEsp[$i], ".") !== false) {
-                $divPonto = explode(".", $divEsp[$i]);
-                $divEsp[$i] = str_replace($divPonto[0] . ".", $sub . ".", $divEsp[$i]);
-            }
-        }
-
-        return implode(" ", $divEsp);
-    }
-
-    /**
-     * Função para correção da ordenação no Mssql quando utilizado alias 
-     * de tabela para ordenar os campos. Esta função irá substituir o alias 
-     * original pelo alias da tabela externa
-     * 
-     * @param string $haveDistinct
-     * @param string $sql
-     * 
-     * @return array
-     */
-    public function alterarDistinctTop($haveDistinct, $sql, $count = 0, $offset = 0)
-    {
-        if ($haveDistinct) {
-            return preg_replace(
-                '/^SELECT\s/i',
-                'SELECT DISTINCT TOP ' . ($count + $offset) . ' ',
-                $sql
-            );
-        }
-
-        return preg_replace(
-            '/^SELECT\s/i',
-            'SELECT TOP ' . ($count + $offset) . ' ',
-            $sql
-        );
     }
 }
