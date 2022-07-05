@@ -792,7 +792,7 @@ class Zend_Paginator implements Countable, IteratorAggregate
 
         $offset = ($pageNumber - 1) * $this->getItemCountPerPage();
 
-        $items = $this->_adapter->getItems($offset, $this->getItemCountPerPage());
+        $items = null;
 
         $filter = $this->getFilter();
 

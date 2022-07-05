@@ -317,6 +317,12 @@ class Zend_Db_Adapter_Pdo_Sqlsrv extends Zend_Db_Adapter_Pdo_Abstract
      */
      public function limit($sql, $count, $offset = 0)
      {
+        $haveDistinct = false;
+        if (stristr($sql, 'SELECT DISTINCT') !== false) {
+            $haveDistinct = true;
+            $sql = preg_replace('/^SELECT DISTINCT\s/i', 'SELECT ', $sql);
+        }
+
         $count = (int)$count;
         if ($count <= 0) {
             require_once 'Zend/Db/Adapter/Exception.php';
@@ -331,7 +337,7 @@ class Zend_Db_Adapter_Pdo_Sqlsrv extends Zend_Db_Adapter_Pdo_Abstract
         }
 
         if ($offset === 0) {
-            $sql = preg_replace('/^SELECT\s/i', 'SELECT TOP ' . $count . ' ', $sql);
+            $sql = $this->alterarDistinctTop($haveDistinct, $sql, $count);
         } else {
             $orderby = stristr($sql, 'ORDER BY');
             if ($orderby !== false) {
@@ -340,17 +346,17 @@ class Zend_Db_Adapter_Pdo_Sqlsrv extends Zend_Db_Adapter_Pdo_Abstract
                 $order = trim(preg_replace('/\bASC\b|\bDESC\b/i', '', $order));
             }
 
-            $sql = preg_replace('/^SELECT\s/i', 'SELECT TOP ' . ($count+$offset) . ' ', $sql);
+            $sql = $this->alterarDistinctTop($haveDistinct, $sql, $count, $offset);
 
             $sql = 'SELECT * FROM (SELECT TOP ' . $count . ' * FROM (' . $sql . ') AS inner_tbl';
             if ($orderby !== false) {
-                $innerOrder = preg_replace('/\".*\".\"(.*)\"/i', '"inner_tbl"."$1"', $order);
+                $innerOrder = $this->arrumarOrdenacao($innerOrder, "inner_tbl");
                 $sql .= ' ORDER BY ' . $innerOrder . ' ';
                 $sql .= (stripos($sort, 'asc') !== false) ? 'DESC' : 'ASC';
             }
             $sql .= ') AS outer_tbl';
             if ($orderby !== false) {
-                $outerOrder = preg_replace('/\".*\".\"(.*)\"/i', '"outer_tbl"."$1"', $order);
+                $outerOrder = $this->arrumarOrdenacao($outerOrder, "outer_tbl");
                 $sql .= ' ORDER BY ' . $outerOrder . ' ' . $sort;
             }
         }
@@ -375,5 +381,56 @@ class Zend_Db_Adapter_Pdo_Sqlsrv extends Zend_Db_Adapter_Pdo_Abstract
         } catch (PDOException $e) {
             return null;
         }
+    }
+
+    /**
+     * Função para correção da ordenação no Mssql quando utilizado alias 
+     * de tabela para ordenar os campos. Esta função irá substituir o alias 
+     * original pelo alias da tabela externa
+     * 
+     * @param string $order
+     * @param string $sub
+     * 
+     * @return array
+     */
+    public function arrumarOrdenacao($order, $sub)
+    {
+        $divEsp = explode(" ", $order);
+
+        for ($i = 0; $i < count($divEsp); $i++) {
+            if (strpos($divEsp[$i], ".") !== false) {
+                $divPonto = explode(".", $divEsp[$i]);
+                $divEsp[$i] = str_replace($divPonto[0] . ".", $sub . ".", $divEsp[$i]);
+            }
+        }
+
+        return implode(" ", $divEsp);
+    }
+
+    /**
+     * Função para correção da ordenação no Mssql quando utilizado alias 
+     * de tabela para ordenar os campos. Esta função irá substituir o alias 
+     * original pelo alias da tabela externa
+     * 
+     * @param string $haveDistinct
+     * @param string $sql
+     * 
+     * @return array
+     */
+    public function alterarDistinctTop($haveDistinct, $sql, $count = 0, $offset = 0)
+    {
+        if ($haveDistinct) {
+            return preg_replace(
+                '/^SELECT\s/i',
+                'SELECT DISTINCT TOP ' . ($count + $offset) . ' ',
+                $sql
+            );
+        }
+
+        return preg_replace(
+            '/^SELECT\s/i',
+            'SELECT TOP ' . ($count + $offset) . ' ',
+            $sql
+        );
     }
 }
