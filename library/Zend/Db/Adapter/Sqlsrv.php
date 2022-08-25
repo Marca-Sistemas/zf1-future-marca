@@ -1,4 +1,5 @@
 <?php
+
 /**
  * Zend Framework
  *
@@ -127,7 +128,7 @@ class Zend_Db_Adapter_Sqlsrv extends Zend_Db_Adapter_Abstract
 
         $serverName = $this->_config['host'];
         if (isset($this->_config['port'])) {
-            $port        = (integer) $this->_config['port'];
+            $port        = (int) $this->_config['port'];
             $serverName .= ', ' . $port;
         }
 
@@ -135,8 +136,7 @@ class Zend_Db_Adapter_Sqlsrv extends Zend_Db_Adapter_Abstract
             'Database' => $this->_config['dbname'],
         ];
 
-        if (isset($this->_config['username']) && isset($this->_config['password']))
-        {
+        if (isset($this->_config['username']) && isset($this->_config['password'])) {
             $connectionInfo += [
                 'UID'      => $this->_config['username'],
                 'PWD'      => $this->_config['password'],
@@ -179,13 +179,13 @@ class Zend_Db_Adapter_Sqlsrv extends Zend_Db_Adapter_Abstract
     protected function _checkRequiredOptions(array $config)
     {
         // we need at least a dbname
-        if (! array_key_exists('dbname', $config)) {
+        if (!array_key_exists('dbname', $config)) {
             /** @see Zend_Db_Adapter_Exception */
             require_once 'Zend/Db/Adapter/Exception.php';
             throw new Zend_Db_Adapter_Exception("Configuration array must have a key for 'dbname' that names the database instance");
         }
 
-        if (! array_key_exists('password', $config) && array_key_exists('username', $config)) {
+        if (!array_key_exists('password', $config) && array_key_exists('username', $config)) {
             /**
              * @see Zend_Db_Adapter_Exception
              */
@@ -217,8 +217,7 @@ class Zend_Db_Adapter_Sqlsrv extends Zend_Db_Adapter_Abstract
         $sql = null;
 
         // Default transaction level in sql server
-        if ($level === null)
-        {
+        if ($level === null) {
             $level = SQLSRV_TXN_READ_COMMITTED;
         }
 
@@ -259,7 +258,7 @@ class Zend_Db_Adapter_Sqlsrv extends Zend_Db_Adapter_Abstract
     public function isConnected()
     {
         return (is_resource($this->_connection)
-                && (get_resource_type($this->_connection) == 'SQL Server Connection')
+            && (get_resource_type($this->_connection) == 'SQL Server Connection')
         );
     }
 
@@ -372,10 +371,10 @@ class Zend_Db_Adapter_Sqlsrv extends Zend_Db_Adapter_Abstract
 
         // build the statement
         $sql = "INSERT INTO "
-             . $this->quoteIdentifier($table, true)
-             . ' (' . implode(', ', $cols) . ') '
-             . 'VALUES (' . implode(', ', $vals) . ')'
-             . ' ' . $this->_lastInsertSQL;
+            . $this->quoteIdentifier($table, true)
+            . ' (' . implode(', ', $cols) . ') '
+            . 'VALUES (' . implode(', ', $vals) . ')'
+            . ' ' . $this->_lastInsertSQL;
 
         // execute the statement and return the number of affected rows
         $stmt   = $this->query($sql, array_values($bind));
@@ -462,7 +461,7 @@ class Zend_Db_Adapter_Sqlsrv extends Zend_Db_Adapter_Abstract
          */
         $tableOwner = $result[0][$owner];
         $sql        = "exec sp_pkeys @table_owner = " . $tableOwner
-                    . ", @table_name = " . $this->quoteIdentifier($tableName, true);
+            . ", @table_name = " . $this->quoteIdentifier($tableName, true);
         $stmt       = $this->query($sql);
 
         $primaryKeysResult = $stmt->fetchAll(Zend_Db::FETCH_NUM);
@@ -598,8 +597,8 @@ class Zend_Db_Adapter_Sqlsrv extends Zend_Db_Adapter_Abstract
      * @return string
      * @throws Zend_Db_Adapter_Sqlsrv_Exception
      */
-     public function limit($sql, $count, $offset = 0)
-     {
+    public function limit($sql, $count, $offset = 0)
+    {
         $count = (int)$count;
         if ($count <= 0) {
             require_once 'Zend/Db/Adapter/Exception.php';
@@ -625,6 +624,13 @@ class Zend_Db_Adapter_Sqlsrv extends Zend_Db_Adapter_Abstract
                 $over = preg_replace('/\"[^,]*\".\"([^,]*)\"/i', '"inner_tbl"."$1"', $orderby);
             }
 
+            if ($orderby !== false) {
+                $orderbyInverse = $this->correctOrder($orderbyInverse, "inner_tbl");
+                $orderbyInverse = str_replace("ASC DESC", "DESC", strtoupper($orderbyInverse));
+                $orderbyInverse = str_replace("DESC DESC", "ASC", strtoupper($orderbyInverse));
+                $sql .= " {$orderbyInverse} ";
+            }
+
             // Remove ORDER BY clause from $sql
             $sql = preg_replace('/\s+ORDER BY(.*)/', '', $sql);
 
@@ -635,10 +641,16 @@ class Zend_Db_Adapter_Sqlsrv extends Zend_Db_Adapter_Abstract
 
             if ($count == PHP_INT_MAX) {
                 $sql = "WITH outer_tbl AS ($sql) SELECT * FROM outer_tbl WHERE \"ZEND_DB_ROWNUM\" >= $start";
-            }
-            else {
+            } else {
                 $end = $offset + $count;
                 $sql = "WITH outer_tbl AS ($sql) SELECT * FROM outer_tbl WHERE \"ZEND_DB_ROWNUM\" BETWEEN $start AND $end";
+            }
+
+            if ($orderby !== false) {
+                $orderby = $this->correctOrder($orderby, "outer_tbl");
+                $orderbyInverse = str_replace("ASC DESC", "DESC", strtoupper($orderbyInverse));
+                $orderbyInverse = str_replace("DESC DESC", "ASC", strtoupper($orderbyInverse));
+                $sql .= " {$orderby}";
             }
         }
 
@@ -676,5 +688,29 @@ class Zend_Db_Adapter_Sqlsrv extends Zend_Db_Adapter_Abstract
         }
 
         return null;
+    }
+
+    /**
+     *
+     * Função para correção da ordenação no Mssql quando utilizado alias
+     * de tabela para ordenar os campos. Esta função irá substituir o alias
+     * original pelo alias da tabela externa
+     *
+     *
+     * @param string $order
+     * @param string $sub
+     */
+    public function correctOrder($order, $sub)
+    {
+        $divEsp = explode(" ", $order);
+
+        for ($i = 0; $i < count($divEsp); $i++) {
+            if (strpos($divEsp[$i], ".") !== false) {
+                $divPonto = explode(".", $divEsp[$i]);
+                $divEsp[$i] = str_replace("{$divPonto[0]}.", "{$sub}.", $divEsp[$i]);
+            }
+        }
+
+        return implode(" ", $divEsp);
     }
 }
