@@ -1,4 +1,5 @@
 <?php
+
 /**
  * Zend Framework
  *
@@ -87,12 +88,12 @@ class Zend_Db_Adapter_Pdo_Sqlsrv extends Zend_Db_Adapter_Pdo_Abstract
             $dsn = $this->_pdoType . ':' . $dsn['name'];
         } else {
 
-            if(isset($dsn['dbname'])) {
+            if (isset($dsn['dbname'])) {
                 $dsn['Database'] = $dsn['dbname'];
                 unset($dsn['dbname']);
             }
 
-            if(isset($dsn['host'])) {
+            if (isset($dsn['host'])) {
                 $dsn['Server'] = $dsn['host'];
                 unset($dsn['host']);
             }
@@ -144,8 +145,7 @@ class Zend_Db_Adapter_Pdo_Sqlsrv extends Zend_Db_Adapter_Pdo_Abstract
         $sql = null;
 
         // Default transaction level in sql server
-        if ($level === null)
-        {
+        if ($level === null) {
             $level = SQLSRV_TXN_READ_COMMITTED;
         }
 
@@ -315,8 +315,8 @@ class Zend_Db_Adapter_Pdo_Sqlsrv extends Zend_Db_Adapter_Pdo_Abstract
      * @return string
      * @throws Zend_Db_Adapter_Exceptions
      */
-     public function limit($sql, $count, $offset = 0)
-     {
+    public function limit($sql, $count, $offset = 0)
+    {
         $haveDistinct = false;
         if (stristr($sql, 'SELECT DISTINCT') !== false) {
             $haveDistinct = true;
@@ -340,24 +340,53 @@ class Zend_Db_Adapter_Pdo_Sqlsrv extends Zend_Db_Adapter_Pdo_Abstract
             $sql = $this->alterarDistinctTop($haveDistinct, $sql, $count);
         } else {
             $orderby = stristr($sql, 'ORDER BY');
+
+            $orderbyInverse = '';
+
             if ($orderby !== false) {
-                $sort  = (stripos($orderby, ' desc') !== false) ? 'desc' : 'asc';
-                $order = str_ireplace('ORDER BY', '', $orderby);
-                $order = trim(preg_replace('/\bASC\b|\bDESC\b/i', '', $order));
+                $orderParts = explode(',', substr($orderby, 8));
+                $pregReplaceCount = null;
+                $orderbyInverseParts = array();
+
+                foreach ($orderParts as $orderPart) {
+                    $orderPart = rtrim($orderPart);
+
+                    $inv = preg_replace('/\s+desc$/i', ' ASC', $orderPart, 1, $pregReplaceCount);
+                    if ($pregReplaceCount) {
+                        $orderbyInverseParts[] = $inv;
+                        continue;
+                    }
+
+                    $inv = preg_replace('/\s+asc$/i', ' DESC', $orderPart, 1, $pregReplaceCount);
+                    if ($pregReplaceCount) {
+                        $orderbyInverseParts[] = $inv;
+                        continue;
+                    } else {
+                        $orderbyInverseParts[] = $orderPart . ' DESC';
+                    }
+                }
+
+                $orderbyInverse = 'ORDER BY ' . implode(', ', $orderbyInverseParts);
             }
 
             $sql = $this->alterarDistinctTop($haveDistinct, $sql, $count, $offset);
 
             $sql = 'SELECT * FROM (SELECT TOP ' . $count . ' * FROM (' . $sql . ') AS inner_tbl';
+
             if ($orderby !== false) {
-                $innerOrder = $this->arrumarOrdenacao($innerOrder, "inner_tbl");
-                $sql .= ' ORDER BY ' . $innerOrder . ' ';
-                $sql .= (stripos($sort, 'asc') !== false) ? 'DESC' : 'ASC';
+                $orderbyInverse = $this->correctOrder($orderbyInverse, "inner_tbl");
+                $orderbyInverse = str_replace("ASC DESC", "DESC", strtoupper($orderbyInverse));
+                $orderbyInverse = str_replace("DESC DESC", "ASC", strtoupper($orderbyInverse));
+                $sql .= " {$orderbyInverse} ";
             }
+
             $sql .= ') AS outer_tbl';
+
             if ($orderby !== false) {
-                $outerOrder = $this->arrumarOrdenacao($outerOrder, "outer_tbl");
-                $sql .= ' ORDER BY ' . $outerOrder . ' ' . $sort;
+                $orderby = $this->correctOrder($orderby, "outer_tbl");
+                $orderbyInverse = str_replace("ASC DESC", "DESC", strtoupper($orderbyInverse));
+                $orderbyInverse = str_replace("DESC DESC", "ASC", strtoupper($orderbyInverse));
+                $sql .= " " . $orderby;
             }
         }
 
@@ -384,16 +413,16 @@ class Zend_Db_Adapter_Pdo_Sqlsrv extends Zend_Db_Adapter_Pdo_Abstract
     }
 
     /**
-     * Função para correção da ordenação no Mssql quando utilizado alias 
-     * de tabela para ordenar os campos. Esta função irá substituir o alias 
+     * Função para correção da ordenação no Mssql quando utilizado alias
+     * de tabela para ordenar os campos. Esta função irá substituir o alias
      * original pelo alias da tabela externa
-     * 
+     *
      * @param string $order
      * @param string $sub
-     * 
-     * @return array
+     *
+     * @return string
      */
-    public function arrumarOrdenacao($order, $sub)
+    public function correctOrder($order, $sub)
     {
         $divEsp = explode(" ", $order);
 
@@ -404,17 +433,17 @@ class Zend_Db_Adapter_Pdo_Sqlsrv extends Zend_Db_Adapter_Pdo_Abstract
             }
         }
 
-        return implode(" ", $divEsp);
+        return (string) implode(" ", $divEsp);
     }
 
     /**
-     * Função para correção da ordenação no Mssql quando utilizado alias 
-     * de tabela para ordenar os campos. Esta função irá substituir o alias 
+     * Função para correção da ordenação no Mssql quando utilizado alias
+     * de tabela para ordenar os campos. Esta função irá substituir o alias
      * original pelo alias da tabela externa
-     * 
+     *
      * @param string $haveDistinct
      * @param string $sql
-     * 
+     *
      * @return array
      */
     public function alterarDistinctTop($haveDistinct, $sql, $count = 0, $offset = 0)

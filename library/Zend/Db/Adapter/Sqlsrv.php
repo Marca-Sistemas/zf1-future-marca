@@ -123,7 +123,9 @@ class Zend_Db_Adapter_Sqlsrv extends Zend_Db_Adapter_Abstract
              * @see Zend_Db_Adapter_Sqlsrv_Exception
              */
             require_once 'Zend/Db/Adapter/Sqlsrv/Exception.php';
-            throw new Zend_Db_Adapter_Sqlsrv_Exception('The Sqlsrv extension is required for this adapter but the extension is not loaded');
+            throw new Zend_Db_Adapter_Sqlsrv_Exception(
+                'The Sqlsrv extension is required for this adapter but the extension is not loaded'
+            );
         }
 
         $serverName = $this->_config['host'];
@@ -182,7 +184,9 @@ class Zend_Db_Adapter_Sqlsrv extends Zend_Db_Adapter_Abstract
         if (!array_key_exists('dbname', $config)) {
             /** @see Zend_Db_Adapter_Exception */
             require_once 'Zend/Db/Adapter/Exception.php';
-            throw new Zend_Db_Adapter_Exception("Configuration array must have a key for 'dbname' that names the database instance");
+            throw new Zend_Db_Adapter_Exception(
+                "Configuration array must have a key for 'dbname' that names the database instance"
+            );
         }
 
         if (!array_key_exists('password', $config) && array_key_exists('username', $config)) {
@@ -190,8 +194,11 @@ class Zend_Db_Adapter_Sqlsrv extends Zend_Db_Adapter_Abstract
              * @see Zend_Db_Adapter_Exception
              */
             require_once 'Zend/Db/Adapter/Exception.php';
-            throw new Zend_Db_Adapter_Exception("Configuration array must have a key for 'password' for login credentials.
-                                                If Windows Authentication is desired, both keys 'username' and 'password' should be ommited from config.");
+            throw new Zend_Db_Adapter_Exception(
+                "Configuration array must have a key for 'password' for login credentials." .
+                    "If Windows Authentication is desired, both keys 'username' and 'password' " .
+                    "should be ommited from config."
+            );
         }
 
         if (array_key_exists('password', $config) && !array_key_exists('username', $config)) {
@@ -199,8 +206,11 @@ class Zend_Db_Adapter_Sqlsrv extends Zend_Db_Adapter_Abstract
              * @see Zend_Db_Adapter_Exception
              */
             require_once 'Zend/Db/Adapter/Exception.php';
-            throw new Zend_Db_Adapter_Exception("Configuration array must have a key for 'username' for login credentials.
-                                                If Windows Authentication is desired, both keys 'username' and 'password' should be ommited from config.");
+            throw new Zend_Db_Adapter_Exception(
+                "Configuration array must have a key for 'username' for login credentials. " .
+                    "If Windows Authentication is desired, both keys 'username' and 'password' " .
+                    "should be ommited from config."
+            );
         }
     }
 
@@ -599,6 +609,12 @@ class Zend_Db_Adapter_Sqlsrv extends Zend_Db_Adapter_Abstract
      */
     public function limit($sql, $count, $offset = 0)
     {
+        $haveDistinct = false;
+        if (stristr($sql, 'SELECT DISTINCT') !== false) {
+            $haveDistinct = true;
+            $sql = preg_replace('/^SELECT DISTINCT\s/i', 'SELECT ', $sql);
+        }
+
         $count = (int)$count;
         if ($count <= 0) {
             require_once 'Zend/Db/Adapter/Exception.php';
@@ -606,7 +622,6 @@ class Zend_Db_Adapter_Sqlsrv extends Zend_Db_Adapter_Abstract
         }
 
         $offset = (int)$offset;
-
         if ($offset < 0) {
             /** @see Zend_Db_Adapter_Exception */
             require_once 'Zend/Db/Adapter/Exception.php';
@@ -614,15 +629,41 @@ class Zend_Db_Adapter_Sqlsrv extends Zend_Db_Adapter_Abstract
         }
 
         if ($offset === 0) {
-            $sql = preg_replace('/^SELECT\s/i', 'SELECT TOP ' . $count . ' ', $sql);
+            $sql = $this->alterarDistinctTop($haveDistinct, $sql, $count);
         } else {
             $orderby = stristr($sql, 'ORDER BY');
 
-            if (!$orderby) {
-                $over = 'ORDER BY (SELECT 0)';
-            } else {
-                $over = preg_replace('/\"[^,]*\".\"([^,]*)\"/i', '"inner_tbl"."$1"', $orderby);
+            $orderbyInverse = '';
+
+            if ($orderby !== false) {
+                $orderParts = explode(',', substr($orderby, 8));
+                $pregReplaceCount = null;
+                $orderbyInverseParts = array();
+
+                foreach ($orderParts as $orderPart) {
+                    $orderPart = rtrim($orderPart);
+
+                    $inv = preg_replace('/\s+desc$/i', ' ASC', $orderPart, 1, $pregReplaceCount);
+                    if ($pregReplaceCount) {
+                        $orderbyInverseParts[] = $inv;
+                        continue;
+                    }
+
+                    $inv = preg_replace('/\s+asc$/i', ' DESC', $orderPart, 1, $pregReplaceCount);
+                    if ($pregReplaceCount) {
+                        $orderbyInverseParts[] = $inv;
+                        continue;
+                    } else {
+                        $orderbyInverseParts[] = $orderPart . ' DESC';
+                    }
+                }
+
+                $orderbyInverse = 'ORDER BY ' . implode(', ', $orderbyInverseParts);
             }
+
+            $sql = $this->alterarDistinctTop($haveDistinct, $sql, $count, $offset);
+
+            $sql = 'SELECT * FROM (SELECT TOP ' . $count . ' * FROM (' . $sql . ') AS inner_tbl';
 
             if ($orderby !== false) {
                 $orderbyInverse = $this->correctOrder($orderbyInverse, "inner_tbl");
@@ -631,26 +672,13 @@ class Zend_Db_Adapter_Sqlsrv extends Zend_Db_Adapter_Abstract
                 $sql .= " {$orderbyInverse} ";
             }
 
-            // Remove ORDER BY clause from $sql
-            $sql = preg_replace('/\s+ORDER BY(.*)/', '', $sql);
-
-            // Add ORDER BY clause as an argument for ROW_NUMBER()
-            $sql = "SELECT ROW_NUMBER() OVER ($over) AS \"ZEND_DB_ROWNUM\", * FROM ($sql) AS inner_tbl";
-
-            $start = $offset + 1;
-
-            if ($count == PHP_INT_MAX) {
-                $sql = "WITH outer_tbl AS ($sql) SELECT * FROM outer_tbl WHERE \"ZEND_DB_ROWNUM\" >= $start";
-            } else {
-                $end = $offset + $count;
-                $sql = "WITH outer_tbl AS ($sql) SELECT * FROM outer_tbl WHERE \"ZEND_DB_ROWNUM\" BETWEEN $start AND $end";
-            }
+            $sql .= ') AS outer_tbl';
 
             if ($orderby !== false) {
                 $orderby = $this->correctOrder($orderby, "outer_tbl");
                 $orderbyInverse = str_replace("ASC DESC", "DESC", strtoupper($orderbyInverse));
                 $orderbyInverse = str_replace("DESC DESC", "ASC", strtoupper($orderbyInverse));
-                $sql .= " {$orderby}";
+                $sql .= " " . $orderby;
             }
         }
 
@@ -691,14 +719,14 @@ class Zend_Db_Adapter_Sqlsrv extends Zend_Db_Adapter_Abstract
     }
 
     /**
-     *
-     * Fun��o para corre��o da ordena��o no Mssql quando utilizado alias
-     * de tabela para ordenar os campos. Esta fun��o ir� substituir o alias
+     * Função para correção da ordenação no Mssql quando utilizado alias
+     * de tabela para ordenar os campos. Esta função irá substituir o alias
      * original pelo alias da tabela externa
-     *
      *
      * @param string $order
      * @param string $sub
+     *
+     * @return string
      */
     public function correctOrder($order, $sub)
     {
@@ -707,10 +735,37 @@ class Zend_Db_Adapter_Sqlsrv extends Zend_Db_Adapter_Abstract
         for ($i = 0; $i < count($divEsp); $i++) {
             if (strpos($divEsp[$i], ".") !== false) {
                 $divPonto = explode(".", $divEsp[$i]);
-                $divEsp[$i] = str_replace("{$divPonto[0]}.", "{$sub}.", $divEsp[$i]);
+                $divEsp[$i] = str_replace($divPonto[0] . ".", $sub . ".", $divEsp[$i]);
             }
         }
 
-        return implode(" ", $divEsp);
+        return (string) implode(" ", $divEsp);
+    }
+
+    /**
+     * Função para correção da ordenação no Mssql quando utilizado alias
+     * de tabela para ordenar os campos. Esta função irá substituir o alias
+     * original pelo alias da tabela externa
+     *
+     * @param string $haveDistinct
+     * @param string $sql
+     *
+     * @return array
+     */
+    public function alterarDistinctTop($haveDistinct, $sql, $count = 0, $offset = 0)
+    {
+        if ($haveDistinct) {
+            return preg_replace(
+                '/^SELECT\s/i',
+                'SELECT DISTINCT TOP ' . ($count + $offset) . ' ',
+                $sql
+            );
+        }
+
+        return preg_replace(
+            '/^SELECT\s/i',
+            'SELECT TOP ' . ($count + $offset) . ' ',
+            $sql
+        );
     }
 }
