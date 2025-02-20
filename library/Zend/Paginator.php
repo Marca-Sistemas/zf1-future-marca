@@ -43,13 +43,13 @@ class Zend_Paginator implements Countable, IteratorAggregate
      *
      * @var string
      */
-    const INTERNAL_ADAPTER = 'Zend_Paginator_Adapter_Internal';
+    public const INTERNAL_ADAPTER = 'Zend_Paginator_Adapter_Internal';
 
     /**
      * The cache tag prefix used to namespace Paginator results in the cache
      *
      */
-    const CACHE_TAG_PREFIX = 'Zend_Paginator_';
+    public const CACHE_TAG_PREFIX = 'Zend_Paginator_';
 
     /**
      * Adapter plugin loader
@@ -268,11 +268,9 @@ class Zend_Paginator implements Countable, IteratorAggregate
      * @param  array $prefixPaths
      * @return Zend_Paginator
      */
-    public static function factory(
-        $data,
-        $adapter = self::INTERNAL_ADAPTER,
-        array $prefixPaths = null
-    ) {
+    public static function factory($data, $adapter = self::INTERNAL_ADAPTER,
+                                   ?array $prefixPaths = null)
+    {
         if ($data instanceof Zend_Paginator_AdapterAggregate) {
             return new self($data->getPaginatorAdapter());
         } else {
@@ -945,7 +943,7 @@ class Zend_Paginator implements Countable, IteratorAggregate
      * @param  Zend_View_Interface $view
      * @return Zend_Paginator
      */
-    public function setView(Zend_View_Interface $view = null)
+    public function setView(?Zend_View_Interface $view = null)
     {
         $this->_view = $view;
 
@@ -1002,7 +1000,7 @@ class Zend_Paginator implements Countable, IteratorAggregate
      * @param  Zend_View_Interface $view
      * @return string
      */
-    public function render(Zend_View_Interface $view = null)
+    public function render(?Zend_View_Interface $view = null)
     {
         if (null !== $view) {
             $this->setView($view);
